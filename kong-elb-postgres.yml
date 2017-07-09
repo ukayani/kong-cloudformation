@@ -2,25 +2,92 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Kong CloudFormation template. Creates load balanced Kong instances (cluster)
   with Postgres RDS instance in an existing VPC
 Parameters:
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: Required - VPC Id of existing VPC
+  # Kong Instance Config
+  KongVersion:
+    Description: Kong version (Only 0.9.x and above supported)
+    Type: String
+    Default: 0.10.3
+    AllowedValues:
+    - 0.10.3
+    - 0.10.2
+    - 0.10.1
+    - 0.10.0
+    - 0.9.9
+    - 0.9.8
+    - 0.9.7
+    - 0.9.6
+    - 0.9.5
+    - 0.9.4
+    - 0.9.3
+    - 0.9.2
+    - 0.9.1
+    - 0.9.0
+  KongKeyName:
+    Description: Required - Name of an existing EC2 KeyPair to enable SSH access to
+      the instances for Kong
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: ''
+  KongInstanceType:
+    Description: 'Kong EC2 instance type'
+    Type: String
+    Default: m3.medium
+    AllowedValues:
+    - t2.small
+    - t2.micro
+    - t2.medium
+    - t2.large
+    - m3.medium
+    - m3.large
+    - m3.xlarge
+    - m3.2xlarge
+    - m4.large
+    - m4.xlarge
+    - m4.2xlarge
+    - m4.4xlarge
+    - m4.10xlarge
+    - c3.large
+    - c3.xlarge
+    - c3.2xlarge
+    - c3.4xlarge
+    - c3.8xlarge
+    - c4.large
+    - c4.xlarge
+    - c4.xlarge
+    - c4.2xlarge
+    - c4.4xlarge
+    - c4.8xlarge
+    - r3.large
+    - r3.xlarge
+    - r3.2xlarge
+    - r3.4xlarge
+    - r3.8xlarge
+    ConstraintDescription: must be a valid EC2 instance type.
   SubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
     Description: Required - Existing VPC Subnets where EC2 instances and RDS instances will run. (private)
     Default: ''
-  ELBSubnetIds:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: Required - Existing Subnets in which ELB instances will run. (public)
-    Default: ''
-  DBName:
-    Default: kong
-    Description: Required - The database name
-    Type: String
-    MinLength: '1'
-    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
-    ConstraintDescription: must begin with a letter and contain only alphanumeric
-      characters.
+  SecurityGroupForSSH:
+    Description: Optional - Security group which is allowed SSH access to Kong instances
+    Type: AWS::EC2::SecurityGroup::Id
+  
+  # Kong Fleet Config  
+  KongFleetMinSize:
+    Description: Min Number of Kong instances
+    Type: Number
+    Default: '1'
+    MinValue: '1'
+  KongFleetMaxSize:
+    Description: Max Number of Kong instances
+    Type: Number
+    Default: '3'
+    MinValue: '1'
+  KongFleetDesiredSize:
+    Description: Desired Number of Kong instances
+    Type: Number
+    Default: '2'
+    MinValue: '1'
+    
+  # Kong Database Config
   DBHost:
     Description: Optional - The database host dns, leave blank to start a new RDS instance
     Type: String
@@ -30,6 +97,14 @@ Parameters:
     Type: String
     AllowedPattern: '[0-9]+'
     ConstraintDescription: must be a valid port number
+  DBName:
+    Default: kong
+    Description: Required - The database name
+    Type: String
+    MinLength: '1'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric
+      characters.
   DBUsername:
     Default: kong
     Description: Required - The database admin account username
@@ -72,20 +147,6 @@ Parameters:
     - db.r3.4xlarge
     - db.r3.8xlarge
     ConstraintDescription: must select a valid database instance type.
-  DBAllocatedStorage:
-    Default: '5'
-    Description: The size of the database (Gb)
-    Type: Number
-    MinValue: '5'
-    MaxValue: '6144'
-    ConstraintDescription: must be between 5+
-  DBMultiAZ:
-    Default: false
-    Description: 'Allow MultiAZ database deployment '
-    Type: String
-    AllowedValues:
-    - true
-    - false
   DBVersion:
     Description: Postgres version
     Type: String
@@ -96,17 +157,17 @@ Parameters:
     - 9.4.5
     - 9.4.4
     - 9.4.1
-  DBSnapshotIdentifier:
-    Description: Optional - The RDS snapshot name to restore to the new DB instance.
-    Type: String
-    Default: ''
-  DBStorageEncrypted:
+  DBMultiAZ:
     Default: false
-    Description: Specifies whether the DB instance is encrypted
+    Description: 'Allow MultiAZ database deployment '
     Type: String
     AllowedValues:
     - true
     - false
+  DBSnapshotIdentifier:
+    Description: Optional - The RDS snapshot name to restore to the new DB instance.
+    Type: String
+    Default: ''
   DBStorageType:
     Description: Storage Type for RDS volume
     Type: String
@@ -114,9 +175,26 @@ Parameters:
     AllowedValues:
     - gp2
     - standard
-  SecurityGroupForSSH:
-    Description: Optional - Security group which is allowed SSH access to Kong instances
-    Type: AWS::EC2::SecurityGroup::Id
+  DBAllocatedStorage:
+    Default: '5'
+    Description: The size of the database (Gb)
+    Type: Number
+    MinValue: '5'
+    MaxValue: '6144'
+    ConstraintDescription: must be between 5+
+  DBStorageEncrypted:
+    Default: false
+    Description: Specifies whether the DB instance is encrypted
+    Type: String
+    AllowedValues:
+    - true
+    - false
+    
+  # Load Balancer Config
+  ELBSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Required - Existing Subnets in which ELB instances will run. (public)
+    Default: ''
   KongProxyAccess:
     Description: The IP address range that can be used to access the Kong proxy
     Type: String
@@ -132,14 +210,6 @@ Parameters:
       AllowedValues:
       - true
       - false  
-  KongAdminAccess:
-    Description: The IP address range that can be used to access the Kong Admin port
-    Type: String
-    MinLength: '9'
-    MaxLength: '18'
-    Default: 0.0.0.0/0
-    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
-    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
   KongAdminPort:
     Description: The port at which to expose the Kong Admin dashboard
     Type: String
@@ -148,82 +218,80 @@ Parameters:
     MaxLength: '6'
     AllowedPattern: (\d{2,6})
     ConstraintDescription: must be a valid port  
-  KongKeyName:
-    Description: Required - Name of an existing EC2 KeyPair to enable SSH access to
-      the instances for Kong
-    Type: AWS::EC2::KeyPair::KeyName
-    Default: ''
-  KongFleetMaxSize:
-    Description: Max Number of Kong instances
-    Type: Number
-    Default: '2'
-    MinValue: '1'
-  KongFleetDesiredSize:
-    Description: Desired Number of Kong instances
-    Type: Number
-    Default: '2'
-    MinValue: '1'
+  KongAdminAccess:
+    Description: The IP address range that can be used to access the Kong Admin port
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
   KinesisStackName:
     Type: String
     Description: Optional - Name of the CF stack used to create the Kinesis stream. Leave blank to skip filter creation.
-  KongInstanceType:
-    Description: 'Kong EC2 instance type'
-    Type: String
-    Default: m3.medium
-    AllowedValues:
-    - t2.small
-    - t2.micro
-    - t2.medium
-    - t2.large
-    - m3.medium
-    - m3.large
-    - m3.xlarge
-    - m3.2xlarge
-    - m4.large
-    - m4.xlarge
-    - m4.2xlarge
-    - m4.4xlarge
-    - m4.10xlarge
-    - c3.large
-    - c3.xlarge
-    - c3.2xlarge
-    - c3.4xlarge
-    - c3.8xlarge
-    - c4.large
-    - c4.xlarge
-    - c4.xlarge
-    - c4.2xlarge
-    - c4.4xlarge
-    - c4.8xlarge
-    - r3.large
-    - r3.xlarge
-    - r3.2xlarge
-    - r3.4xlarge
-    - r3.8xlarge
-    ConstraintDescription: must be a valid EC2 instance type.
-  KongVersion:
-    Description: Kong version (Only 0.9.x and above supported)
-    Type: String
-    Default: 0.10.3
-    AllowedValues:
-    - 0.10.3
-    - 0.10.2
-    - 0.10.1
-    - 0.10.0
-    - 0.9.9
-    - 0.9.8
-    - 0.9.7
-    - 0.9.6
-    - 0.9.5
-    - 0.9.4
-    - 0.9.3
-    - 0.9.2
-    - 0.9.1
-    - 0.9.0
   CloudFormationLogGroup:
     Description: Name of CloudFormation log group. All cloud-init based logs will be sent here
     Type: String
     Default: 'CloudFormation'
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Required - VPC Id of existing VPC
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - Label: 
+          default: "Kong Instance Configuration"
+        Parameters: 
+          - KongVersion
+          - KongKeyName
+          - KongInstanceType
+          - SubnetIds
+          - SecurityGroupForSSH
+      - Label: 
+          default: "Kong Fleet Configuration"
+        Parameters: 
+          - KongFleetMinSize
+          - KongFleetMaxSize
+          - KongFleetDesiredSize
+      - Label: 
+          default: "Kong Postgres Configuration"
+        Parameters: 
+          - DBHost
+          - DBPort
+          - DBName
+          - DBUsername
+          - DBPassword
+          - DBClass
+          - DBVersion
+          - DBMultiAZ
+          - DBSnapshotIdentifier
+          - DBStorageType
+          - DBAllocatedStorage
+          - DBStorageEncrypted
+      - Label: 
+          default: "Load Balancer Configuration"
+        Parameters: 
+          - ELBSubnetIds
+          - KongProxyAccess
+          - KongAdminAccessEnabled
+          - KongAdminPort
+          - KongAdminAccess
+      - Label: 
+          default: "Logging"
+        Parameters: 
+          - KinesisStackName
+          - CloudFormationLogGroup
+      - Label: 
+          default: "Network Configuration"
+        Parameters: 
+          - VpcId
+      
+    ParameterLabels: 
+      VpcId: 
+        default: "Which VPC should this be deployed to?"
+      KongAdminAccessEnabled:
+        default: "Enable public access to Kong Admin port?"
 Mappings:
   RegionKongAmiMap:
     us-east-1:
@@ -346,7 +414,7 @@ Resources:
     Properties:
       VPCZoneIdentifier: !Ref 'SubnetIds'
       LaunchConfigurationName: !Ref 'KongLaunchConfig'
-      MinSize: 1
+      MinSize: !Ref 'KongFleetMinSize'
       MaxSize: !Ref 'KongFleetMaxSize'
       DesiredCapacity: !Ref 'KongFleetDesiredSize'
       LoadBalancerNames:
