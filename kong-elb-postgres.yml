@@ -204,12 +204,12 @@ Parameters:
     AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
     ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
   KongAdminAccessEnabled:
-      Default: false
+      Default: no
       Description: Allow public access to Kong Admin
       Type: String
       AllowedValues:
-      - true
-      - false  
+      - yes
+      - no  
   KongAdminPort:
     Description: The port at which to expose the Kong Admin dashboard
     Type: String
@@ -313,7 +313,7 @@ Mappings:
 Conditions:
   CreateRDS: !Equals [!Ref 'DBHost', '']
   UseDbSnapshot: !Not [!Equals [!Ref 'DBSnapshotIdentifier', '']]
-  CreateAdminIngress: !Equals [!Ref 'KongAdminAccessEnabled', 'true']
+  CreateAdminIngress: !Equals [!Ref 'KongAdminAccessEnabled', 'yes']
   CreateSubscriptionFilter: !Not [!Equals [!Ref 'KinesisStackName', '']]
   AllowSSHAccess: !Not [!Equals [!Ref 'SecurityGroupForSSH', '']] 
 Resources:
