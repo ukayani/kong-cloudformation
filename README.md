@@ -12,7 +12,7 @@ A YAML CF template to create a Kong Cluster
   - No need to specify a cert on ELB. Let Kong handle SSL
 - Optionally Enables SSL access to Kong Instances
 - Optionally enable access to Kong Admin
-  - This can be disabled once you add the Kong Admin as an API and secure it
+  - This can be disabled once you add the Kong Admin as an API and secure it. See [Securing Kong Admin](https://getkong.org/docs/0.10.x/secure-admin-api/)
 - Forwards CloudFormation logs to an existing Log Group.
   - Allows easy debugging of cloud formation provisioning without a need to SSH into instances
 
